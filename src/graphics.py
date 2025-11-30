@@ -2,6 +2,51 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
+def crear_grafico_evolucion_temporal(df):
+    """Crea gráfico de evolución temporal de entradas"""
+    if df.empty:
+        return go.Figure()
+    
+    mensual = df.groupby('MES_ENTRADA').size().reset_index(name='count')
+    
+    fig = px.line(mensual, 
+                 x='MES_ENTRADA', 
+                 y='count',
+                 title='Evolución Mensual de Entradas en Lista de Espera',
+                 markers=True)
+    
+    fig.update_layout(xaxis_title="Mes", yaxis_title="Número de Entradas")
+    return fig
+
+def crear_grafico_tiempo_espera(df):
+    """Crea gráfico de distribución de tiempo de espera"""
+    if df.empty:
+        return go.Figure()
+    
+    fig = px.histogram(df, 
+                      x='DIAS_EN_ESPERA',
+                      title='Distribución de Días en Lista de Espera',
+                      nbins=20)
+    
+    fig.update_layout(xaxis_title="Días en Espera", yaxis_title="Frecuencia")
+    return fig
+
+def crear_grafico_bvd_vs_espera(df):
+    """Crea scatter plot de BVD vs tiempo de espera"""
+    if df.empty:
+        return go.Figure()
+    
+    fig = px.scatter(df, 
+                    x='BVD', 
+                    y='DIAS_EN_ESPERA',
+                    color='TRAMO_EDAD',
+                    title='Relación entre BVD y Tiempo de Espera',
+                    hover_data=['DISTRITO_NOMBRE', 'SEXO'])
+    
+    fig.update_layout(xaxis_title="BVD", yaxis_title="Días en Espera")
+    return fig
+
+# Mantener las funciones originales también
 def crear_grafico_distritos(df):
     """Crea gráfico de barras por distrito"""
     if df.empty:
@@ -20,7 +65,6 @@ def crear_grafico_distritos(df):
     return fig
 
 def crear_grafico_edad(df):
-    """Crea gráfico de distribución por edad"""
     if df.empty:
         return go.Figure()
     
@@ -35,7 +79,6 @@ def crear_grafico_edad(df):
     return fig
 
 def crear_grafico_sexo(df):
-    """Crea gráfico de distribución por sexo"""
     if df.empty:
         return go.Figure()
     
