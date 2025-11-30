@@ -1,19 +1,41 @@
-# src/model.py
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
 
-def recommend_residence(df, edad, distrito, sexo):
-    """
-    Recomendación mínima: filtrar por distrito y sugerir el centro más frecuente.
-    """
+model = None
+feature_columns = None
 
-    filtered = df.copy()
+def train_model(df):
+    """Entrena un modelo mínimo usando todas las columnas numéricas excepto la última."""
+    
+    global model, feature_columns
 
-    if distrito and ("distrito" in df.columns):
-        filtered = filtered[filtered["distrito"] == distrito]
+    # Usamos todas las columnas numéricas
+    numeric_df = df.select_dtypes(include=["int64", "float64"])
 
-    if filtered.empty:
-        return "No hay datos suficientes."
+    # Suponemos que la última columna es el target (ajústalo si quieres)
+    feature_columns = numeric_df.columns[:-1]
+    target_column = numeric_df.columns[-1]
 
-    if "centro" not in filtered.columns:
-        return "No disponible"
+    X = numeric_df[feature_columns]
+    y = numeric_df[target_column]
 
-    return filtered["centro"].value_counts().idxmax()
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    model = RandomForestRegressor(n_estimators=200, random_state=42)
+    model.fit(X_train, y_train)
+
+    return model, feature_columns
+
+
+def predict_wait_time(values_dict):
+    """Recibe un diccionario con valores de entrada y devuelve la predicción."""
+    global model, feature_columns
+
+    import pandas as pd
+
+    X = pd.DataFrame([values_dict])[feature_columns]
+    pred = model.predict(X)[0]
+
+    return pred

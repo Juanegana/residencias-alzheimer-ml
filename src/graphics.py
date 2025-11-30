@@ -1,12 +1,22 @@
-# src/graphics.py
 import plotly.express as px
 
-def plot_age_distribution(df):
-    if "edad" not in df.columns:
-        return {}
-    return px.histogram(df, x="edad", nbins=20, title="Distribución de edades")
+def create_feature_importance_fig(model, feature_names):
+    importances = model.feature_importances_
+    fig = px.bar(
+        x=importances,
+        y=feature_names,
+        orientation="h",
+        title="Importancia de las variables"
+    )
+    return fig
 
-def plot_district_distribution(df):
-    if "distrito" not in df.columns:
-        return {}
-    return px.bar(df["distrito"].value_counts(), title="Personas en lista por distrito")
+
+def create_histogram_fig(df):
+    # Primera columna numérica del dataset para ejemplo
+    numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns
+
+    if len(numeric_cols) == 0:
+        return None
+
+    fig = px.histogram(df, x=numeric_cols[0], title=f"Distribución de {numeric_cols[0]}")
+    return fig
