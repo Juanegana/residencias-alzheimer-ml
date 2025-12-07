@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import os
+import joblib
 
 def cargar_datos():
     """Carga y limpia los datos de lista de espera"""
@@ -44,3 +45,27 @@ def obtener_estadisticas_avanzadas(df):
     }
     
     return stats
+
+def cargar_o_entrenar_modelo(df):
+    """Carga el modelo si existe, de lo contrario lo entrena"""
+    from src.model import ModeloPrediccion
+    
+    modelo_ml = ModeloPrediccion()
+    stats = obtener_estadisticas_avanzadas(df)
+    
+    # Verificar si el modelo ya está guardado
+    if os.path.exists('modelo_espera.pkl') and os.path.exists('label_encoders.pkl'):
+        try:
+            modelo_ml.model = joblib.load('modelo_espera.pkl')
+            modelo_ml.label_encoders = joblib.load('label_encoders.pkl')
+            print("Modelo cargado desde archivos guardados")
+        except Exception as e:
+            print(f"Error cargando modelo: {e}. Entrenando nuevo modelo...")
+            if len(df) > 10:
+                modelo_ml.entrenar_modelo(df)
+    else:
+        if len(df) > 10:
+            print("Entrenando modelo ML...")
+            modelo_ml.entrenar_modelo(df)
+    
+    return modelo_ml, stats
