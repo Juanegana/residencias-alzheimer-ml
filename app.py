@@ -1,5 +1,5 @@
 import dash
-from dash import html, dcc, Input, Output, callback
+from dash import html, dcc, Input, Output, State
 import dash_bootstrap_components as dbc
 from src import etl, graphics, model
 
@@ -8,17 +8,27 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
 server = app.server
 
 # Cargar datos y entrenar modelo
-df = etl.cargar_datos()
-stats = etl.obtener_estadisticas_avanzadas(df)
-
-# Entrenar modelo ML
-if not df.empty:
-    model.modelo_ml.entrenar_modelo(df)
-
-# Obtener opciones para dropdowns
-distritos = ["Todos"] + sorted(df['DISTRITO_NOMBRE'].unique().tolist()) if not df.empty else ["Todos"]
-edades = ["Todos"] + sorted(df['TRAMO_EDAD'].unique().tolist()) if not df.empty else ["Todos"]
-sexos = ["Todos"] + sorted(df['SEXO'].unique().tolist()) if not df.empty else ["Todos"]
+try:
+    df = etl.cargar_datos()
+    stats = etl.obtener_estadisticas_avanzadas(df) if not df.empty else {}
+    
+    # Entrenar modelo ML si hay datos
+    if not df.empty and len(df) > 10:
+        try:
+            model.modelo_ml.entrenar_modelo(df)
+        except Exception as e:
+            print(f"Error entrenando modelo: {e}")
+    
+    # Obtener opciones para dropdowns
+    distritos = ["Todos"] + sorted(df['DISTRITO_NOMBRE'].unique().tolist()) if not df.empty else ["Todos"]
+    edades = ["Todos"] + sorted(df['TRAMO_EDAD'].unique().tolist()) if not df.empty else ["Todos"]
+    sexos = ["Todos"] + sorted(df['SEXO'].unique().tolist()) if not df.empty else ["Todos"]
+    
+except Exception as e:
+    print(f"Error inicializando datos: {e}")
+    df = None
+    stats = {}
+    distritos = edades = sexos = ["Todos"]
 
 app.layout = dbc.Container([
     # Header
@@ -89,7 +99,8 @@ app.layout = dbc.Container([
                                       id='buscar-btn', 
                                       color="primary", 
                                       size="lg",
-                                      className="mt-3 w-100")
+                                      className="mt-3 w-100",
+                                      n_clicks=0)
                         ], width=12)
                     ])
                 ])
@@ -104,7 +115,10 @@ app.layout = dbc.Container([
                 dbc.CardHeader("💡 Recomendaciones Inteligentes", 
                              className="bg-success text-white"),
                 dbc.CardBody([
-                    html.Div(id='recomendaciones-output')
+                    html.Div(id='recomendaciones-output', children=[
+                        dbc.Alert("👆 Seleccione criterios y haga clic en 'Buscar Recomendaciones con ML'", 
+                                color="info")
+                    ])
                 ])
             ])
         ])
@@ -174,7 +188,7 @@ app.layout = dbc.Container([
     ])
 ], fluid=True)
 
-# Callbacks actualizados
+# Callback para gráficos
 @app.callback(
     [Output('grafico-distritos', 'figure'),
      Output('grafico-evolucion', 'figure'),
@@ -183,25 +197,40 @@ app.layout = dbc.Container([
     [Input('buscar-btn', 'n_clicks')]
 )
 def actualizar_graficos(n_clicks):
+    if df is None or df.empty:
+        empty_fig = {
+            'data': [],
+            'layout': {'title': 'No hay datos disponibles'}
+        }
+        return empty_fig, empty_fig, empty_fig, empty_fig
+    
     return (graphics.crear_grafico_distritos(df),
             graphics.crear_grafico_evolucion_temporal(df),
             graphics.crear_grafico_tiempo_espera(df),
             graphics.crear_grafico_bvd_vs_espera(df))
 
+# Callback para recomendaciones
 @app.callback(
     Output('recomendaciones-output', 'children'),
     [Input('buscar-btn', 'n_clicks')],
-    [Input('distrito-dropdown', 'value'),
-     Input('edad-dropdown', 'value'),
-     Input('sexo-dropdown', 'value'),
-     Input('bvd-input', 'value')]
+    [State('distrito-dropdown', 'value'),
+     State('edad-dropdown', 'value'),
+     State('sexo-dropdown', 'value'),
+     State('bvd-input', 'value')]
 )
 def generar_recomendaciones(n_clicks, distrito, edad, sexo, bvd):
-    if n_clicks is None:
+    if n_clicks == 0:
         return dbc.Alert("👆 Seleccione criterios y haga clic en 'Buscar Recomendaciones con ML'", 
                         color="info")
     
-    recomendaciones = model.recomendar_residencia(df, distrito, edad, sexo, bvd)
+    if df is None or df.empty:
+        return dbc.Alert("No hay datos disponibles para generar recomendaciones.", color="warning")
+    
+    try:
+        recomendaciones = model.recomendar_residencia(df, distrito, edad, sexo, bvd)
+    except Exception as e:
+        print(f"Error generando recomendaciones: {e}")
+        return dbc.Alert(f"Error generando recomendaciones: {str(e)}", color="danger")
     
     if isinstance(recomendaciones, str):
         return dbc.Alert(recomendaciones, color="warning")
@@ -209,26 +238,30 @@ def generar_recomendaciones(n_clicks, distrito, edad, sexo, bvd):
     # Mostrar recomendaciones en tarjetas mejoradas
     cards = []
     for i, rec in enumerate(recomendaciones, 1):
-        # Color basado en el tiempo de espera
-        if rec['TIEMPO_ESPERA_DIAS'] < 30:
-            color = "success"
-        elif rec['TIEMPO_ESPERA_DIAS'] < 60:
-            color = "warning"
+        tiempo = rec.get('TIEMPO_ESPERA_DIAS', 30)
+        if isinstance(tiempo, (int, float)):
+            if tiempo < 30:
+                color = "success"
+            elif tiempo < 60:
+                color = "warning"
+            else:
+                color = "danger"
+            tiempo_texto = f"{tiempo} días"
         else:
-            color = "danger"
+            color = "secondary"
+            tiempo_texto = str(tiempo)
         
         card = dbc.Card([
             dbc.CardHeader(f"🏆 Recomendación #{i}"),
             dbc.CardBody([
-                html.H5(f"Distrito: {rec['DISTRITO_NOMBRE']}", className="card-title"),
+                html.H5(f"Distrito: {rec.get('DISTRITO_NOMBRE', 'N/A')}", className="card-title"),
                 dbc.ListGroup([
-                    dbc.ListGroupItem(f"📊 BVD: {rec['BVD']:.2f}"),
-                    dbc.ListGroupItem(f"👵 Edad: {rec['TRAMO_EDAD']}"),
-                    dbc.ListGroupItem(f"👤 Sexo: {rec['SEXO']}"),
+                    dbc.ListGroupItem(f"📊 BVD: {rec.get('BVD', 0):.2f}"),
+                    dbc.ListGroupItem(f"👵 Edad: {rec.get('TRAMO_EDAD', 'N/A')}"),
+                    dbc.ListGroupItem(f"👤 Sexo: {rec.get('SEXO', 'N/A')}"),
                     dbc.ListGroupItem([
                         html.Span("⏱️ Tiempo estimado de espera: "),
-                        html.Span(f"{rec['TIEMPO_ESPERA_DIAS']} días", 
-                                 className=f"text-{color} fw-bold")
+                        html.Span(tiempo_texto, className=f"text-{color} fw-bold")
                     ])
                 ], flush=True)
             ])
