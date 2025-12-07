@@ -1,35 +1,49 @@
+# app.py
 import dash
 from dash import html, dcc, Input, Output, State
 import dash_bootstrap_components as dbc
-from src import etl, graphics, model
+
+# Importaciones condicionales para evitar errores
+try:
+    from src import etl, graphics, model
+    IMPORT_SUCCESS = True
+except ImportError as e:
+    print(f"Error importando módulos: {e}")
+    IMPORT_SUCCESS = False
 
 # Inicializar app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
 server = app.server
 
-# Cargar datos y entrenar modelo
-try:
-    df = etl.cargar_datos()
-    stats = etl.obtener_estadisticas_avanzadas(df) if not df.empty else {}
-    
-    # Entrenar modelo ML si hay datos
-    if not df.empty and len(df) > 10:
-        try:
-            model.modelo_ml.entrenar_modelo(df)
-        except Exception as e:
-            print(f"Error entrenando modelo: {e}")
-    
-    # Obtener opciones para dropdowns
-    distritos = ["Todos"] + sorted(df['DISTRITO_NOMBRE'].unique().tolist()) if not df.empty else ["Todos"]
-    edades = ["Todos"] + sorted(df['TRAMO_EDAD'].unique().tolist()) if not df.empty else ["Todos"]
-    sexos = ["Todos"] + sorted(df['SEXO'].unique().tolist()) if not df.empty else ["Todos"]
-    
-except Exception as e:
-    print(f"Error inicializando datos: {e}")
+# Cargar datos si los módulos están disponibles
+if IMPORT_SUCCESS:
+    try:
+        df = etl.cargar_datos()
+        stats = etl.obtener_estadisticas_avanzadas(df) if not df.empty else {}
+        
+        # Obtener opciones para dropdowns
+        distritos = ["Todos"] + sorted(df['DISTRITO_NOMBRE'].unique().tolist()) if not df.empty else ["Todos"]
+        edades = ["Todos"] + sorted(df['TRAMO_EDAD'].unique().tolist()) if not df.empty else ["Todos"]
+        sexos = ["Todos"] + sorted(df['SEXO'].unique().tolist()) if not df.empty else ["Todos"]
+        
+        # Entrenar modelo si hay datos
+        if not df.empty and len(df) > 10:
+            try:
+                model.modelo_ml.entrenar_modelo(df)
+            except Exception as e:
+                print(f"Error entrenando modelo: {e}")
+                
+    except Exception as e:
+        print(f"Error inicializando datos: {e}")
+        df = None
+        stats = {}
+        distritos = edades = sexos = ["Todos"]
+else:
     df = None
     stats = {}
     distritos = edades = sexos = ["Todos"]
 
+# Layout principal
 app.layout = dbc.Container([
     # Header
     dbc.Row([
@@ -124,7 +138,7 @@ app.layout = dbc.Container([
         ])
     ], className="mb-4"),
     
-    # Nueva fila de estadísticas avanzadas
+    # Estadísticas avanzadas (solo si hay datos)
     dbc.Row([
         dbc.Col([
             dbc.Card([
@@ -188,7 +202,7 @@ app.layout = dbc.Container([
     ])
 ], fluid=True)
 
-# Callback para gráficos
+# Callbacks
 @app.callback(
     [Output('grafico-distritos', 'figure'),
      Output('grafico-evolucion', 'figure'),
@@ -197,10 +211,10 @@ app.layout = dbc.Container([
     [Input('buscar-btn', 'n_clicks')]
 )
 def actualizar_graficos(n_clicks):
-    if df is None or df.empty:
+    if not IMPORT_SUCCESS or df is None or df.empty:
         empty_fig = {
-            'data': [],
-            'layout': {'title': 'No hay datos disponibles'}
+            'data': [{'x': [], 'y': [], 'type': 'scatter'}],
+            'layout': {'title': 'Datos no disponibles'}
         }
         return empty_fig, empty_fig, empty_fig, empty_fig
     
@@ -209,7 +223,6 @@ def actualizar_graficos(n_clicks):
             graphics.crear_grafico_tiempo_espera(df),
             graphics.crear_grafico_bvd_vs_espera(df))
 
-# Callback para recomendaciones
 @app.callback(
     Output('recomendaciones-output', 'children'),
     [Input('buscar-btn', 'n_clicks')],
@@ -223,19 +236,18 @@ def generar_recomendaciones(n_clicks, distrito, edad, sexo, bvd):
         return dbc.Alert("👆 Seleccione criterios y haga clic en 'Buscar Recomendaciones con ML'", 
                         color="info")
     
-    if df is None or df.empty:
-        return dbc.Alert("No hay datos disponibles para generar recomendaciones.", color="warning")
+    if not IMPORT_SUCCESS or df is None or df.empty:
+        return dbc.Alert("Módulos de datos no disponibles.", color="warning")
     
     try:
         recomendaciones = model.recomendar_residencia(df, distrito, edad, sexo, bvd)
     except Exception as e:
         print(f"Error generando recomendaciones: {e}")
-        return dbc.Alert(f"Error generando recomendaciones: {str(e)}", color="danger")
+        return dbc.Alert(f"Error: {str(e)[:100]}...", color="danger")
     
     if isinstance(recomendaciones, str):
         return dbc.Alert(recomendaciones, color="warning")
     
-    # Mostrar recomendaciones en tarjetas mejoradas
     cards = []
     for i, rec in enumerate(recomendaciones, 1):
         tiempo = rec.get('TIEMPO_ESPERA_DIAS', 30)
@@ -268,7 +280,7 @@ def generar_recomendaciones(n_clicks, distrito, edad, sexo, bvd):
         ], color=color, outline=True, className="mb-3")
         cards.append(card)
     
-    return html.Div(cards)
+    return html.Div(cards) if cards else dbc.Alert("No se encontraron recomendaciones.", color="warning")
 
 if __name__ == "__main__":
     app.run(debug=True)
